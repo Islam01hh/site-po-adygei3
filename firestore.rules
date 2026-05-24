@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny Catches All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- 2. Security Primitives & Reusable Helpers ---
+    
+    // Checks if the document ID is valid (safeguards against buffer overflow/poisoning)
+    function isValidId(id) {
+      return id is string && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role verification (relational DB lookup)
+    // Supports direct admin bootstrap for the developer email
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'Khabemizov@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // --- 3. Schema Validators ---
+
+    // Validates a user profile document
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'role', 'createdAt']) &&
+             data.keys().size() == 6 &&
+             data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.photoURL is string && data.photoURL.size() <= 1000 &&
+             data.role in ['user', 'admin'] &&
+             data.createdAt == request.time;
+    }
+
+    // Validates a Sight collection item
+    function isValidSight(data) {
+      return data.keys().hasAll(['title', 'shortDescription', 'description', 'image', 'category', 'location', 'coordinates', 'rating', 'reviewsCount', 'createdBy', 'createdAt']) &&
+             data.keys().size() == 11 &&
+             data.title is string && data.title.size() <= 150 &&
+             data.shortDescription is string && data.shortDescription.size() <= 1000 &&
+             data.description is string && data.description.size() <= 10000 &&
+             data.image is string && data.image.size() <= 2000 &&
+             data.category in ['nature', 'culture', 'monument', 'active', 'wellness'] &&
+             data.location is string && data.location.size() <= 200 &&
+             data.coordinates is map &&
+             data.coordinates.lat is number &&
+             data.coordinates.lng is number &&
+             data.rating is number &&
+             data.reviewsCount is int &&
+             data.createdBy is string &&
+             data.createdAt == request.time;
+    }
+
+    // Validates a travel Route
+    function isValidRoute(data) {
+      return data.keys().hasAll(['title', 'description', 'duration', 'difficulty', 'image', 'sightIds', 'createdBy', 'createdAt']) &&
+             data.keys().size() == 8 &&
+             data.title is string && data.title.size() <= 150 &&
+             data.description is string && data.description.size() <= 10000 &&
+             data.duration is string && data.duration.size() <= 100 &&
+             data.difficulty in ['easy', 'medium', 'hard'] &&
+             data.image is string && data.image.size() <= 2000 &&
+             data.sightIds is list && data.sightIds.size() <= 30 &&
+             data.createdBy is string &&
+             data.createdAt == request.time;
+    }
+
+    // Validates a user Review
+    function isValidReview(data) {
+      return data.keys().hasAll(['sightId', 'userId', 'userName', 'userAvatar', 'rating', 'text', 'createdAt']) &&
+             data.keys().size() == 7 &&
+             data.sightId is string && data.sightId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.userName is string && data.userName.size() <= 100 &&
+             data.userAvatar is string && data.userAvatar.size() <= 2000 &&
+             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             data.text is string && data.text.size() <= 2000 &&
+             data.createdAt == request.time;
+    }
+
+    // --- 4. Collection Access Handlers ---
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      // Profiles are publicly readable (guarded list access to prevent scanning database)
+      allow get: if isSignedIn();
+      allow list: if isAdmin(); // Only admins can scan/list profiles
+      
+      // Creating profiles: Only the authenticated user can create their own profile,
+      // and a non-admin CANNOT bootstrap their account as admin on creation.
+      allow create: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming()) && (
+        incoming().role == 'user' || isAdmin()
+      );
+
+      // Updating profile keys
+      allow update: if isSignedIn() && userId == request.auth.uid && (
+        // Action: standard bio changes
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']) &&
+         incoming().displayName is string && incoming().displayName.size() <= 100 &&
+         incoming().photoURL is string && incoming().photoURL.size() <= 1000)
+        ||
+        // Action: admin role update
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['role']) && incoming().role in ['user', 'admin'])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // SIGHTS COLLECTION
+    match /sights/{sightId} {
+      allow read: if true; // Tourist guide catalog is readable by anyone
+      allow create: if isAdmin() && isValidId(sightId) && isValidSight(incoming());
+      
+      allow update: if (
+        // Option 1: Full update by administrator
+        (isAdmin() && isValidSight(incoming()) && incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt)
+        ||
+        // Option 2: Incremental rating update by standard users when submitting review (atomicity batch constraint)
+        (isSignedIn() &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'reviewsCount']) &&
+         incoming().rating is number &&
+         incoming().reviewsCount == existing().reviewsCount + 1 &&
+         incoming().rating >= 1 && incoming().rating <= 5)
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ROUTES COLLECTION
+    match /routes/{routeId} {
+      allow read: if true; // Travel routes are readable by everyone
+      allow create: if isAdmin() && isValidId(routeId) && isValidRoute(incoming());
+      allow update: if isAdmin() && isValidRoute(incoming()) && incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin();
+    }
+
+    // REVIEWS COLLECTION
+    match /reviews/{reviewId} {
+      allow read: if true; // Reviews are visible to all readers
+      
+      // Creating a review - must be signed in, have correct userId matching auth,
+      // and the sight referenced MUST actually exist to prevent orphaned comments!
+      allow create: if isSignedIn() && 
+                    isValidReview(incoming()) && 
+                    exists(/databases/$(database)/documents/sights/$(incoming().sightId));
+
+      // Standard users are not allowed to overwrite/edit their review ratings/data directly,
+      // promoting integrity (reviews are posted once and frozen). Deletes can be done by creator or admins.
+      allow delete: if isSignedIn() && (request.auth.uid == existing().userId || isAdmin());
+    }
+  }
+}

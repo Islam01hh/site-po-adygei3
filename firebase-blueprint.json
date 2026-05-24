@@ -1,0 +1,197 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Public and private user account details",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The Firebase Authentication UID"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "URL of the user's avatar"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "User security role"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date when profile was created"
+        }
+      },
+      "required": ["uid", "displayName", "email", "role", "createdAt"]
+    },
+    "Sight": {
+      "title": "Sight",
+      "description": "A tourist attraction or landmark in Adygea",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique slug ID of the sight"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the sight"
+        },
+        "shortDescription": {
+          "type": "string",
+          "description": "Short summary for cards"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description in Markdown"
+        },
+        "image": {
+          "type": "string",
+          "description": "URL of the photograph representing the sight"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["nature", "culture", "monument", "active", "wellness"],
+          "description": "Attraction category"
+        },
+        "location": {
+          "type": "string",
+          "description": "Location display name, e.g. пос. Гузерипль"
+        },
+        "coordinates": {
+          "type": "object",
+          "description": "Geographical coordinates for maps"
+        },
+        "rating": {
+          "type": "number",
+          "description": "Average user rating"
+        },
+        "reviewsCount": {
+          "type": "number",
+          "description": "Total reviews received"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID of the administrator who added it"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        }
+      },
+      "required": ["title", "shortDescription", "description", "image", "category", "location", "rating", "reviewsCount", "createdBy", "createdAt"]
+    },
+    "Route": {
+      "title": "Route",
+      "description": "A multi-stop recommended tourist route in Adygea",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Slug of the route"
+        },
+        "title": {
+          "type": "string",
+          "description": "Name of the route"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the path and plan"
+        },
+        "duration": {
+          "type": "string",
+          "description": "E.g. 1 день, 3 часа, 2 дня"
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["easy", "medium", "hard"],
+          "description": "Route difficulty level"
+        },
+        "image": {
+          "type": "string",
+          "description": "Cover picture for route"
+        },
+        "sightIds": {
+          "type": "array",
+          "description": "List of Sight IDs linked to this route"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID of creator"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Route creation timestamp"
+        }
+      },
+      "required": ["title", "description", "duration", "difficulty", "image", "sightIds", "createdBy", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User feedback feedback on a particular sight",
+      "type": "object",
+      "properties": {
+        "sightId": {
+          "type": "string",
+          "description": "Reference to parent sight ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Referencing the user UID"
+        },
+        "userName": {
+          "type": "string",
+          "description": "Screen name of user"
+        },
+        "userAvatar": {
+          "type": "string",
+          "description": "Avatar image url"
+        },
+        "rating": {
+          "type": "number",
+          "description": "A value of 1 to 5"
+        },
+        "text": {
+          "type": "string",
+          "description": "Review text"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of post"
+        }
+      },
+      "required": ["sightId", "userId", "userName", "rating", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Public user profile information and database roles"
+    },
+    "sights/{sightId}": {
+      "schema": { "$ref": "#/entities/Sight" },
+      "description": "Catalog of natural and cultural tourist sights"
+    },
+    "routes/{routeId}": {
+      "schema": { "$ref": "#/entities/Route" },
+      "description": "Curated tourist itineraries in Adygea"
+    },
+    "reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Reviews and ratings left by users on registered sights"
+    }
+  }
+}
